@@ -5,10 +5,8 @@ class Handler(asyncore.dispatcher_with_send):
   def __init__(self, host, server, port=None):
     asyncore.dispatcher_with_send.__init__(self, host, port)
     self.server = server
-    print 'what about here'
 
   def handle_read(self):
-    print 'hendle_read'
     data = self.recv(4096)
     print data
     if(data):
@@ -42,10 +40,8 @@ class Sender(asyncore.dispatcher_with_send):
       self.f = f
     else:
       self.f = lambda *args: self.send(json.dumps({'fqn': fqn, 'name': 'rfc', 'args': args}))
-    print 'and what about here'
 
   def handle_write(self):
-    print 'sender handle_write'
     try:
       self.f()
     except Exception as inst:
@@ -70,11 +66,9 @@ class NowPyServer(asyncore.dispatcher):
       sock, addr = pair
       if self.writable():
         f = lambda: self.send(json.dumps(self.funcs.keys()))
-        print 'here'
         sender = Sender(sock, None, None, f=f)
       if self.readable():
         handler = Handler(sock, self)
-        print 'and here'
 
   def handle_close(self):
     self.close();
