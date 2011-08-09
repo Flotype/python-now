@@ -1,4 +1,5 @@
 import socket, asyncore, json, eventlet
+from types import FunctionType
 
 #handle reading messages from the socket
 class Handler(asyncore.dispatcher_with_send):
@@ -18,6 +19,11 @@ class Handler(asyncore.dispatcher_with_send):
           f = self.server.funcs[args['fqn']]
           fArgs = map(self.deserialize, args['args'], args['args'].values())
           f(*fArgs)
+        elif name == 'closure':
+          f = self.server.closures[args['fqn']]
+          fArgs = map(self.deserialize, args['args'], args['args'].values())
+          f(*fArgs)
+
       except ValueError:
         print 'not valid json'
       except Exception as inst:
@@ -30,25 +36,10 @@ class Handler(asyncore.dispatcher_with_send):
     if 'fqn' in arg:
       ''' TODO: Callbacks can accept callback. It accepts arguments naively here.
       Remember to serialize any python functions and put them into a closures dictionary for later retrieval '''
-      return lambda *x: self.send(json.dumps({'fqn': val, 'name': 'rfc', 'args': x}))
+      return lambda *x: self.send(json.dumps({'fqn': val, 'name': 'rfc', 'args': map(self.server.createCb, x)}))
+
     else:
       return val
-
-#handle writing messages to the socket
-class Sender(asyncore.dispatcher_with_send):
-  def __init__(self, host, fqn, args, f=None, port = None):
-    asyncore.dispatcher.__init__(self, host)
-    if f:
-      self.f = f
-    else:
-      self.f = lambda *args: self.send(json.dumps({'fqn': fqn, 'name': 'rfc', 'args': args}))
-
-  def handle_write(self):
-    try:
-      self.f()
-    except Exception as inst:
-      print inst
-    self.close()
 
 #listens for connections
 class NowPyServer(asyncore.dispatcher):
@@ -59,6 +50,7 @@ class NowPyServer(asyncore.dispatcher):
     self.bind((host, port))
     self.listen(5)
     self.funcs = {}
+    self.closures = {}
 
   def handle_accept(self):
     pair = self.accept()
@@ -66,9 +58,6 @@ class NowPyServer(asyncore.dispatcher):
       pass
     else:
       sock, addr = pair
-      if self.writable():
-        f = lambda: self.send(json.dumps(self.funcs.keys()))
-        sender = Sender(sock, None, None, f=f)
       if self.readable():
         handler = Handler(sock, self)
 
@@ -78,12 +67,20 @@ class NowPyServer(asyncore.dispatcher):
 #register function as one that can be sent over the wire
   def register(self, name, f):
     self.funcs[name] = f
+ 
+  def createGroupFunction(self, group, fqn):
+    return lambda *x: self.send(json.dumps({'fqn': val, 'group': group, 'name': 'rfc', 'args': map(self.createCb, x)}))
+    
+  
+  def createCb(self, arg):
+    if type(arg) == types.FunctionType:
+      self.server.closures[arg.__name__] = arg
+      return arg.__name__ 
 
   def runserver(self):
-    asyncore.loop(5)
+    asyncore.loop()
   
 server = NowPyServer('localhost', 8080)
-
 def testFunc(s, cb):
   print s
   try:
@@ -94,6 +91,7 @@ server.register('testFunc', testFunc)
 
 print 'now listening'
 server.runserver()
+
 
 ''' TODO: need some way of calling a node.js function from python.
 The current way it is done in ruby-now is something like val = Now.createGroupFunction(group, fqn) which returns a function.
