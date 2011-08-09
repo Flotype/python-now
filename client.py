@@ -28,6 +28,8 @@ class Handler(asyncore.dispatcher_with_send):
   #deserialize function args to account for callbacks
   def deserialize(self, arg, val):
     if 'fqn' in arg:
+      ''' TODO: Callbacks can accept callback. It accepts arguments naively here.
+      Remember to serialize any python functions and put them into a closures dictionary for later retrieval '''
       return lambda *x: self.send(json.dumps({'fqn': val, 'name': 'rfc', 'args': x}))
     else:
       return val
@@ -78,8 +80,10 @@ class NowPyServer(asyncore.dispatcher):
     self.funcs[name] = f
 
   def runserver(self):
-    asyncore.loop(5)    
+    asyncore.loop(5)
+  
 server = NowPyServer('localhost', 8080)
+
 def testFunc(s, cb):
   print s
   try:
@@ -90,3 +94,7 @@ server.register('testFunc', testFunc)
 
 print 'now listening'
 server.runserver()
+
+''' TODO: need some way of calling a node.js function from python.
+The current way it is done in ruby-now is something like val = Now.createGroupFunction(group, fqn) which returns a function.
+You can then call that function and it will do the rfc'''
