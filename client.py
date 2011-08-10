@@ -1,5 +1,5 @@
 import socket, asyncore, json, eventlet
-from types import FunctionType
+import types
 
 #handle reading messages from the socket
 class Handler(asyncore.dispatcher_with_send):
@@ -13,16 +13,21 @@ class Handler(asyncore.dispatcher_with_send):
     if(data):
       try:
         data = json.loads(data)
-        name = data['name']
-        args = data['args']
+        print data
+        name = data['type']
         if name == 'rfc':
-          f = self.server.funcs[args['fqn']]
-          fArgs = map(self.deserialize, args['args'], args['args'].values())
+          args = data['args']
+          f = self.server.funcs[data['fqn']]
+          fArgs = map(self.deserialize, args)
           f(*fArgs)
-        elif name == 'closure':
-          f = self.server.closures[args['fqn']]
-          fArgs = map(self.deserialize, args['args'], args['args'].values())
+        elif name == 'closurecall':
+          args = data['args']
+          f = self.server.closures[data['fqn']]
+          fArgs = map(self.deserialize, args)
           f(*fArgs)
+        elif name == 'new':
+          self.send(json.dumps({'type': 'functionList', 'functions': self.server.funcs.keys()}))
+          print "Node.js server connected"
 
       except ValueError:
         print 'not valid json'
@@ -32,14 +37,13 @@ class Handler(asyncore.dispatcher_with_send):
     self.close()
 
   #deserialize function args to account for callbacks
-  def deserialize(self, arg, val):
-    if 'fqn' in arg:
+  def deserialize(self, arg):
+    if type(arg) == types.DictType and 'fqn' in arg:
       ''' TODO: Callbacks can accept callback. It accepts arguments naively here.
       Remember to serialize any python functions and put them into a closures dictionary for later retrieval '''
-      return lambda *x: self.send(json.dumps({'fqn': val, 'name': 'rfc', 'args': map(self.server.createCb, x)}))
-
+      return lambda *x: self.send(json.dumps({'fqn': arg['fqn'], 'type': 'closurecall', 'args': map(self.server.createCb, x)}))
     else:
-      return val
+      return arg
 
 #listens for connections
 class NowPyServer(asyncore.dispatcher):
@@ -60,6 +64,7 @@ class NowPyServer(asyncore.dispatcher):
       sock, addr = pair
       if self.readable():
         handler = Handler(sock, self)
+        self.handler = handler
 
   def handle_close(self):
     self.close();
@@ -69,25 +74,31 @@ class NowPyServer(asyncore.dispatcher):
     self.funcs[name] = f
  
   def createGroupFunction(self, group, fqn):
-    return lambda *x: self.send(json.dumps({'fqn': val, 'group': group, 'name': 'rfc', 'args': map(self.createCb, x)}))
+    return lambda *x: self.handler.send(json.dumps({'fqn': fqn, 'groupName': group, 'type': 'multicall', 'args': map(self.createCb, x)}))
     
   
   def createCb(self, arg):
     if type(arg) == types.FunctionType:
-      self.server.closures[arg.__name__] = arg
-      return arg.__name__ 
+      self.closures[arg.__name__] = arg
+      return {'fqn': arg.__name__} 
 
   def runserver(self):
     asyncore.loop()
   
-server = NowPyServer('localhost', 8080)
-def testFunc(s, cb):
+server = NowPyServer('localhost', 8081)
+def funcc(cb):
+  fn = server.createGroupFunction("everyone", "now.callMe")
+  fn(cb)
+
+def funcb(s, cb):
   print s
   try:
     cb()
   except Exception as inst:
     print inst
-server.register('testFunc', testFunc)
+
+server.register('b', funcb)
+server.register('c', funcc)
 
 print 'now listening'
 server.runserver()
